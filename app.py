@@ -10,8 +10,8 @@ import plotly.express as px
 st.set_page_config(layout="wide")
 
 # ---------------- EMAIL CONFIG ----------------
-SENDER_EMAIL = "aidbaassistant@gmail.com"
-SENDER_PASSWORD = "hjtqgspqbfovdvyf"
+SENDER_EMAIL = "jdpkumar@gmail.com"
+SENDER_PASSWORD = "jueq ezdw zlbi tkkx"
 
 def send_otp(email, otp):
     msg = MIMEText(f"Your BP App OTP is {otp}")
