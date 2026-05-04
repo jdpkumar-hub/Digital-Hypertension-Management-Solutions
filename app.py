@@ -1,11 +1,27 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-import bcrypt
+import random
+import smtplib
+from email.mime.text import MIMEText
 from datetime import datetime
 import plotly.express as px
 
 st.set_page_config(layout="wide")
+
+# ---------------- EMAIL CONFIG ----------------
+SENDER_EMAIL = "aidbaassistant@gmail.com"
+SENDER_PASSWORD = "hjtqgspqbfovdvyf"
+
+def send_otp(email, otp):
+    msg = MIMEText(f"Your BP App OTP is {otp}")
+    msg['Subject'] = "BP App Login OTP"
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = email
+
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.send_message(msg)
 
 # ---------------- DATABASE ----------------
 conn = sqlite3.connect("bp_app.db", check_same_thread=False)
@@ -14,8 +30,7 @@ c = conn.cursor()
 def create_tables():
     c.execute("""CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT UNIQUE,
-                    password TEXT)""")
+                    email TEXT UNIQUE)""")
 
     c.execute("""CREATE TABLE IF NOT EXISTS patients (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,67 +53,64 @@ def create_tables():
 
 create_tables()
 
-# ---------------- AUTH ----------------
-def hash_password(password):
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
-
-def verify_password(password, hashed):
-    return bcrypt.checkpw(password.encode(), hashed)
-
-def login(email, password):
-    c.execute("SELECT * FROM users WHERE email=?", (email,))
-    user = c.fetchone()
-    if user and verify_password(password, user[2]):
-        return user
-    return None
-
-def signup(email, password):
-    try:
-        c.execute("INSERT INTO users (email, password) VALUES (?, ?)",
-                  (email, hash_password(password)))
-        conn.commit()
-        return True
-    except:
-        return False
-
 # ---------------- SESSION ----------------
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# ---------------- LOGIN PAGE ----------------
+if "otp" not in st.session_state:
+    st.session_state.otp = None
+
+# ---------------- LOGIN ----------------
 if not st.session_state.user:
-    st.title("💊 BP Tracker SaaS")
+    st.title("📱 BP Tracker Login")
 
-    menu = st.selectbox("Login / Signup", ["Login", "Signup"])
+    email = st.text_input("Enter Email")
 
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
+    if st.button("Send OTP"):
+        otp = str(random.randint(100000, 999999))
+        st.session_state.otp = otp
+        st.session_state.email = email
 
-    if menu == "Login":
-        if st.button("Login"):
-            user = login(email, password)
-            if user:
-                st.session_state.user = user
-                st.success("Logged in!")
-                st.rerun()
-            else:
-                st.error("Invalid credentials")
+        send_otp(email, otp)
+        st.success("OTP sent to your email")
 
-    else:
-        if st.button("Signup"):
-            if signup(email, password):
-                st.success("Account created")
-            else:
-                st.error("User already exists")
+    otp_input = st.text_input("Enter OTP")
+
+    if st.button("Verify"):
+        if otp_input == st.session_state.otp:
+            st.session_state.user = st.session_state.email
+            st.success("Logged in!")
+            st.rerun()
+        else:
+            st.error("Invalid OTP")
 
     st.stop()
 
-# ---------------- MAIN APP ----------------
-st.sidebar.title("Menu")
+# ---------------- GET USER ----------------
+c.execute("SELECT id FROM users WHERE email=?", (st.session_state.user,))
+user = c.fetchone()
 
-page = st.sidebar.radio("Navigate", ["Dashboard", "Add Patient", "Log BP"])
+if not user:
+    c.execute("INSERT INTO users (email) VALUES (?)", (st.session_state.user,))
+    conn.commit()
+    user_id = c.lastrowid
+else:
+    user_id = user[0]
 
-user_id = st.session_state.user[0]
+# ---------------- UI STYLE ----------------
+st.markdown("""
+<style>
+.stButton button {
+    height: 55px;
+    font-size: 18px;
+    border-radius: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------- SIDEBAR ----------------
+st.sidebar.title("📊 Menu")
+page = st.sidebar.radio("", ["Dashboard", "Add Patient", "Log BP"])
 
 # ---------------- ADD PATIENT ----------------
 if page == "Add Patient":
@@ -106,10 +118,10 @@ if page == "Add Patient":
 
     name = st.text_input("Name")
     age = st.number_input("Age", 1, 120)
-    weight = st.number_input("Weight", 50, 300)
+    weight = st.number_input("Weight (lb)", 50, 300)
     thyroid = st.selectbox("Thyroid Issue", ["Yes", "No"])
 
-    if st.button("Save Patient"):
+    if st.button("Save Patient", use_container_width=True):
         c.execute("INSERT INTO patients (user_id, name, age, weight, thyroid) VALUES (?, ?, ?, ?, ?)",
                   (user_id, name, age, weight, thyroid))
         conn.commit()
@@ -135,17 +147,24 @@ if page == "Log BP":
     col1, col2 = st.columns(2)
 
     with col1:
-        systolic = st.selectbox("Systolic", list(range(100, 201)))
-        diastolic = st.selectbox("Diastolic", list(range(60, 141)))
+        systolic = st.selectbox("⬆️ Systolic", list(range(100, 201)))
 
     with col2:
-        pulse = st.selectbox("Pulse", list(range(50, 121)))
-        time = st.selectbox("Time", ["Morning", "Evening"])
+        diastolic = st.selectbox("⬇️ Diastolic", list(range(60, 141)))
 
+    pulse = st.selectbox("❤️ Pulse", list(range(50, 121))
+)
+    time = st.selectbox("Time", ["Morning", "Evening"])
     medicine = st.selectbox("Medicine Taken", ["Yes", "No"])
     symptoms = st.selectbox("Symptoms", ["None", "Headache", "Dizziness", "Chest Pain"])
 
-    if st.button("Save BP"):
+    if st.button("💾 Save Reading", use_container_width=True):
+        # Security check
+        c.execute("SELECT id FROM patients WHERE id=? AND user_id=?", (patient_id, user_id))
+        if not c.fetchone():
+            st.error("Unauthorized")
+            st.stop()
+
         c.execute("""INSERT INTO bp_logs 
                      (patient_id, date, time, systolic, diastolic, pulse, medicine, symptoms)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -155,9 +174,13 @@ if page == "Log BP":
 
         st.success("Saved!")
 
-        # ALERT
+        # Alerts
         if systolic >= 180 or diastolic >= 120:
-            st.error("🚨 CRITICAL BP! GO TO ER")
+            st.error("🚨 EMERGENCY BP! GO TO HOSPITAL")
+        elif systolic > 140:
+            st.warning("⚠️ High BP")
+        else:
+            st.success("✅ Normal")
 
 # ---------------- DASHBOARD ----------------
 if page == "Dashboard":
@@ -178,11 +201,9 @@ if page == "Dashboard":
 
     st.dataframe(df)
 
-    # Chart
     fig = px.line(df, x="date", y=["systolic", "diastolic"], title="BP Trend")
     st.plotly_chart(fig, use_container_width=True)
 
-    # Latest reading
     latest = df.iloc[-1]
 
     st.subheader("Latest Reading")
